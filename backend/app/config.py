@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
+import sys
 
 
 class Settings(BaseSettings):
@@ -24,6 +25,29 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore"
     )
+    
+    @field_validator('jwt_secret')
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        """Ensure JWT secret is strong and not the default value"""
+        default_secrets = [
+            "your-secret-key-change-this",
+            "secret",
+            "changeme",
+            "default",
+            "test"
+        ]
+        
+        if v.lower() in default_secrets:
+            print("ERROR: JWT_SECRET must be changed from default value!", file=sys.stderr)
+            print("Please set a strong, random JWT_SECRET in your .env file", file=sys.stderr)
+            sys.exit(1)
+        
+        if len(v) < 32:
+            print("ERROR: JWT_SECRET must be at least 32 characters long!", file=sys.stderr)
+            sys.exit(1)
+        
+        return v
 
 
 settings = Settings()

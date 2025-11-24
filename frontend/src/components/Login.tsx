@@ -18,11 +18,26 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      const tokenData = await authAPI.login({ username, password });
-      login(tokenData.access_token);
+      const user = await authAPI.login({ username, password });
+      login(user);
       navigate('/chat');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed. Please try again.');
+      // Handle validation errors from FastAPI/Pydantic
+      const errorDetail = err.response?.data?.detail;
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (errorDetail) {
+        if (Array.isArray(errorDetail)) {
+          // Pydantic validation errors are arrays
+          errorMessage = errorDetail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+        } else if (typeof errorDetail === 'string') {
+          errorMessage = errorDetail;
+        } else {
+          errorMessage = 'Validation error. Please check your input.';
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Token, User, Message, LoginCredentials, RegisterData } from '../types';
+import type { Token, User, Message, MessageRequest, LoginCredentials, RegisterData } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -8,15 +8,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-});
-
-// Add token to requests if available
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
+  withCredentials: true, // Important: enables cookies to be sent
 });
 
 export const authAPI = {
@@ -25,9 +17,13 @@ export const authAPI = {
     return response.data;
   },
 
-  login: async (credentials: LoginCredentials): Promise<Token> => {
-    const response = await api.post<Token>('/auth/login', credentials);
+  login: async (credentials: LoginCredentials): Promise<User> => {
+    const response = await api.post<User>('/auth/login', credentials);
     return response.data;
+  },
+  
+  logout: async (): Promise<void> => {
+    await api.post('/auth/logout');
   },
 
   getMe: async (): Promise<User> => {
@@ -35,7 +31,7 @@ export const authAPI = {
     return response.data;
   },
 
-  getUsers: async (): Promise<User[]> => {
+  getAllUsers: async (): Promise<User[]> => {
     const response = await api.get<User[]>('/auth/users');
     return response.data;
   },
@@ -50,6 +46,15 @@ export const messagesAPI = {
   getMessages: async (otherUserId: string, limit: number = 50): Promise<Message[]> => {
     const response = await api.get<Message[]>(`/messages?other_user_id=${otherUserId}&limit=${limit}`);
     return response.data;
+  },
+
+  getMessageRequests: async (): Promise<MessageRequest[]> => {
+    const response = await api.get<MessageRequest[]>('/messages/requests');
+    return response.data;
+  },
+
+  handleMessageRequest: async (requestId: string, action: 'accept' | 'decline'): Promise<void> => {
+    await api.post(`/messages/requests/${requestId}/action`, { request_id: requestId, action });
   },
 };
 

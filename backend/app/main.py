@@ -1,13 +1,20 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.database import connect_to_mongo, close_mongo_connection
 from app.routers import auth, messages
+from app.middleware import setup_rate_limiting
 
 app = FastAPI(
     title="Messaging App API",
     description="A simple messaging app with encrypted messages",
     version="1.0.0"
 )
+
+# Setup rate limiting
+limiter = setup_rate_limiting(app)
 
 origins = [
     "http://localhost:3000",
@@ -49,6 +56,7 @@ app.add_middleware(
 # Routers
 app.include_router(auth.router)
 app.include_router(messages.router)
+
 
 @app.on_event("startup")
 async def startup_event():

@@ -18,35 +18,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored token on mount
-    const storedToken = localStorage.getItem('token');
-    if (storedToken) {
-      setToken(storedToken);
-      // Fetch user info
-      authAPI.getMe()
-        .then(setUser)
-        .catch(() => {
-          // Token invalid, clear it
-          localStorage.removeItem('token');
-          setToken(null);
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    // Check authentication status on mount (token is in httpOnly cookie)
+    authAPI.getMe()
+      .then((user) => {
+        setUser(user);
+        setToken('authenticated'); // Just a flag, actual token is in cookie
+      })
+      .catch(() => {
+        // Not authenticated
+        setToken(null);
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const login = (newToken: string) => {
-    setToken(newToken);
-    localStorage.setItem('token', newToken);
-    // Fetch user info
-    authAPI.getMe().then(setUser);
+  const login = async (user: User) => {
+    // Token is automatically set in httpOnly cookie by backend
+    setUser(user);
+    setToken('authenticated'); // Just a flag, actual token is in cookie
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      // Ignore logout errors
+    }
     setToken(null);
     setUser(null);
-    localStorage.removeItem('token');
   };
 
   if (loading) {

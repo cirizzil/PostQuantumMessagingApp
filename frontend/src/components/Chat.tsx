@@ -2,16 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { messagesAPI, authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import type { Message, User } from '../types';
+import type { Message, MessageRequest, User } from '../types';
 import './Chat.css';
 
 const Chat: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);  // All users in the system
+  const [messageRequests, setMessageRequests] = useState<MessageRequest[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -21,19 +23,38 @@ const Chat: React.FC = () => {
       navigate('/login');
       return;
     }
-    fetchUsers();
+    
+    // Fetch all users and requests on initial load
+    fetchAllUsers();
+    fetchMessageRequests();
+    
+    // Poll for new message requests every 30 seconds (very infrequent)
+    // This allows users to see new requests without constant checking
+    const interval = setInterval(() => {
+      fetchMessageRequests();
+    }, 30000); // 30 seconds - very infrequent
+    
+    return () => clearInterval(interval);
   }, [isAuthenticated, navigate]);
 
   useEffect(() => {
     if (selectedUserId) {
+      // Fetch messages when a user is selected
       fetchMessages();
-      // Poll for new messages every 3 seconds
-      const interval = setInterval(fetchMessages, 3000);
+      
+      // Poll for new messages every 15 seconds ONLY when conversation is open
+      // This allows recipients to see new messages without constant requests
+      const interval = setInterval(() => {
+        if (!loading) {
+          fetchMessages();
+        }
+      }, 15000); // 15 seconds - much less frequent than before
+      
       return () => clearInterval(interval);
     } else {
       setMessages([]);
     }
-  }, [selectedUserId, isAuthenticated, navigate]);
+  }, [selectedUserId, loading]);
 
   useEffect(() => {
     scrollToBottom();
@@ -43,16 +64,21 @@ const Chat: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchUsers = async () => {
+  const fetchAllUsers = async () => {
+    setLoadingUsers(true);
     try {
-      const fetchedUsers = await authAPI.getUsers();
-      setUsers(fetchedUsers);
+      const users = await authAPI.getAllUsers();
+      setAllUsers(users);
     } catch (err: any) {
       console.error('Failed to fetch users:', err);
       if (err.response?.status === 401) {
         logout();
         navigate('/login');
+      } else {
+        setError('Failed to load users. Please refresh the page.');
       }
+    } finally {
+      setLoadingUsers(false);
     }
   };
 
@@ -60,13 +86,37 @@ const Chat: React.FC = () => {
     if (!selectedUserId) return;
     try {
       const fetchedMessages = await messagesAPI.getMessages(selectedUserId, 50);
-      setMessages(fetchedMessages);
+      // Merge fetched messages with any optimistic messages
+      // This preserves messages that were sent but haven't appeared in server yet (requests)
+      if (fetchedMessages !== undefined && Array.isArray(fetchedMessages)) {
+        setMessages((prev) => {
+          // Get IDs of messages we already have (optimistic or previously fetched)
+          const existingIds = new Set(prev.map(m => m.id));
+          const fetchedIds = new Set(fetchedMessages.map(m => m.id));
+          
+          // Keep optimistic messages that aren't in fetched list yet
+          const optimisticOnly = prev.filter(m => !fetchedIds.has(m.id));
+          
+          // Combine fetched + optimistic, remove duplicates, sort by timestamp
+          const combined = [...fetchedMessages, ...optimisticOnly];
+          const unique = Array.from(
+            new Map(combined.map(m => [m.id, m])).values()
+          ).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          
+          return unique;
+        });
+      }
     } catch (err: any) {
-      console.error('Failed to fetch messages:', err);
+      // Only log non-401 errors
+      if (err.response?.status !== 401) {
+        console.error('Failed to fetch messages:', err);
+        // Don't clear messages on error - keep what we have
+      }
       if (err.response?.status === 401) {
         logout();
         navigate('/login');
       }
+      // Don't set empty array on other errors - keep existing messages
     }
   };
 
@@ -76,13 +126,76 @@ const Chat: React.FC = () => {
 
     setLoading(true);
     setError('');
+    const messageContent = newMessage.trim();
+    setNewMessage(''); // Clear input immediately for better UX
 
     try {
-      const sentMessage = await messagesAPI.sendMessage(newMessage.trim(), selectedUserId);
-      setMessages((prev) => [...prev, sentMessage]);
-      setNewMessage('');
+      const sentMessage = await messagesAPI.sendMessage(messageContent, selectedUserId);
+      
+      // Check if this is a new conversation BEFORE adding the optimistic message
+      const isNewConversation = messages.length === 0;
+      
+      // Optimistically add the message to the UI immediately
+      // This ensures the user sees their message right away
+      setMessages((prev) => {
+        // Check if message already exists (avoid duplicates)
+        if (prev.some(m => m.id === sentMessage.id)) {
+          return prev;
+        }
+        // Add the new message to the end
+        return [...prev, sentMessage];
+      });
+      
+      // Wait a bit before refreshing to ensure the message is committed to the database
+      // Then refresh messages to get the latest state from server
+      setTimeout(async () => {
+        try {
+          const updatedMessages = await messagesAPI.getMessages(selectedUserId, 50);
+          
+          // Check if the sent message appears in the messages list
+          const messageExists = updatedMessages.some(m => m.id === sentMessage.id);
+          
+          if (messageExists) {
+            // Message exists in server - use server data (has correct order)
+            setMessages(updatedMessages);
+          } else {
+            // Message doesn't exist in server response
+            if (isNewConversation) {
+              // This is a new conversation - it was created as a request
+              // Keep the optimistic message so sender can see what they sent
+              // The message will appear properly once the request is accepted
+              // Refresh requests to show it (for recipient)
+              await fetchMessageRequests();
+            } else {
+              // We have existing messages, so this should be a regular message
+              // Keep the optimistic message - server might just be slow or there's a sync issue
+              // The polling will pick it up in the next refresh (every 3 seconds)
+            }
+          }
+        } catch (refreshErr) {
+          // If refresh fails, keep the optimistic message
+          console.error('Failed to refresh messages:', refreshErr);
+        }
+      }, 500); // Small delay to ensure database commit
+      
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to send message');
+      // Restore message if sending failed
+      setNewMessage(messageContent);
+      
+      // Handle validation errors from FastAPI/Pydantic
+      const errorDetail = err.response?.data?.detail;
+      let errorMessage = 'Failed to send message';
+      
+      if (errorDetail) {
+        if (Array.isArray(errorDetail)) {
+          // Pydantic validation errors are arrays
+          errorMessage = errorDetail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+        } else if (typeof errorDetail === 'string') {
+          errorMessage = errorDetail;
+        }
+      }
+      
+      setError(errorMessage);
       if (err.response?.status === 401) {
         logout();
         navigate('/login');
@@ -106,8 +219,61 @@ const Chat: React.FC = () => {
 
   const getSelectedUserName = () => {
     if (!selectedUserId) return null;
-    const selectedUser = users.find(u => u.id === selectedUserId);
+    const selectedUser = allUsers.find(u => u.id === selectedUserId);
     return selectedUser?.username || 'Unknown';
+  };
+
+  const fetchMessageRequests = async () => {
+    try {
+      const requests = await messagesAPI.getMessageRequests();
+      setMessageRequests(requests || []);
+    } catch (err: any) {
+      // Only log non-401 errors to avoid spam
+      if (err.response?.status !== 401) {
+        console.error('Failed to fetch message requests:', err);
+      }
+      if (err.response?.status === 401) {
+        logout();
+        navigate('/login');
+      }
+    }
+  };
+
+  const handleRequestAction = async (requestId: string, action: 'accept' | 'decline') => {
+    try {
+      await messagesAPI.handleMessageRequest(requestId, action);
+      
+      if (action === 'accept') {
+        // Remove from requests
+        const request = messageRequests.find(r => r.id === requestId);
+        if (request) {
+          // Refresh users list to ensure the accepted user is visible
+          await fetchAllUsers();
+          // Auto-select the accepted user
+          setSelectedUserId(request.sender_id);
+          // Immediately fetch messages to show the accepted message
+          setTimeout(() => {
+            fetchMessages();
+          }, 300);
+        }
+      }
+      
+      // Refresh requests
+      await fetchMessageRequests();
+    } catch (err: any) {
+      const errorDetail = err.response?.data?.detail;
+      let errorMessage = `Failed to ${action} request`;
+      
+      if (errorDetail) {
+        if (Array.isArray(errorDetail)) {
+          errorMessage = errorDetail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+        } else if (typeof errorDetail === 'string') {
+          errorMessage = errorDetail;
+        }
+      }
+      
+      setError(errorMessage);
+    }
   };
 
   if (!isAuthenticated) {
@@ -126,11 +292,120 @@ const Chat: React.FC = () => {
             </button>
           </div>
         </div>
+        {/* Message Requests Section */}
+        {messageRequests.length > 0 && (
+          <div style={{ 
+            borderBottom: '1px solid #2d3142', 
+            paddingBottom: '12px', 
+            marginBottom: '12px',
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}>
+            <div style={{ 
+              padding: '12px 16px', 
+              fontSize: '11px', 
+              fontWeight: '600', 
+              color: '#9ca3af', 
+              textTransform: 'uppercase', 
+              letterSpacing: '0.5px',
+              position: 'sticky',
+              top: 0,
+              background: '#1e2128',
+              zIndex: 1
+            }}>
+              Message Requests ({messageRequests.length})
+            </div>
+            <div style={{ padding: '0 8px' }}>
+              {messageRequests.map((request) => (
+                <div
+                  key={request.id}
+                  style={{
+                    padding: '12px',
+                    margin: '4px 0',
+                    background: 'rgba(74, 124, 255, 0.1)',
+                    border: '1px solid rgba(74, 124, 255, 0.3)',
+                    borderRadius: '8px',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <div className="user-avatar" style={{ width: '32px', height: '32px', fontSize: '14px', marginRight: '10px' }}>
+                      {request.sender_username[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: '600', color: '#e4e6eb', fontSize: '14px' }}>{request.sender_username}</div>
+                      <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>
+                        {formatTimestamp(request.timestamp)}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#b0b3b8', marginBottom: '10px', paddingLeft: '42px', fontStyle: 'italic' }}>
+                    "{request.content.substring(0, 50)}{request.content.length > 50 ? '...' : ''}"
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', paddingLeft: '42px' }}>
+                    <button
+                      onClick={() => handleRequestAction(request.id, 'accept')}
+                      style={{
+                        flex: 1,
+                        padding: '6px 12px',
+                        background: 'linear-gradient(135deg, #4a7cff 0%, #5b8cff 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(74, 124, 255, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => handleRequestAction(request.id, 'decline')}
+                      style={{
+                        flex: 1,
+                        padding: '6px 12px',
+                        background: 'rgba(255, 107, 107, 0.2)',
+                        color: '#ff6b6b',
+                        border: '1px solid rgba(255, 107, 107, 0.3)',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 107, 107, 0.3)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 107, 107, 0.5)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 107, 107, 0.2)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 107, 107, 0.3)';
+                      }}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="users-list">
-          {users.length === 0 ? (
+          {loadingUsers ? (
+            <div className="empty-users">Loading users...</div>
+          ) : allUsers.length === 0 ? (
             <div className="empty-users">No other users found</div>
           ) : (
-            users.map((otherUser) => (
+            allUsers.map((otherUser) => (
               <div
                 key={otherUser.id}
                 className={`user-item ${selectedUserId === otherUser.id ? 'active' : ''}`}
@@ -151,7 +426,9 @@ const Chat: React.FC = () => {
           <>
             <div className="messages-container">
               {messages.length === 0 ? (
-                <div className="empty-messages">No messages yet. Start the conversation!</div>
+                <div className="empty-messages">
+                  No messages yet. Start the conversation!
+                </div>
               ) : (
                 messages.map((message) => {
                   const isOwnMessage = message.sender_id === user?.id;
