@@ -36,6 +36,11 @@ export const authAPI = {
     return response.data;
   },
 
+  getAllUsers: async (): Promise<User[]> => {
+    const response = await api.get<User[]>('/auth/users');
+    return response.data;
+  },
+
   getWebSocketToken: async (): Promise<{ token: string; user_id: string }> => {
     const response = await api.get<{ token: string; user_id: string }>('/auth/ws-token');
     return response.data;

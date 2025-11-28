@@ -10,6 +10,7 @@ import './Chat.css';
 const Chat: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationPartners, setConversationPartners] = useState<User[]>([]);  // Users you've chatted with
+  const [allUsers, setAllUsers] = useState<User[]>([]);  // All registered users
   const [messageRequests, setMessageRequests] = useState<MessageRequest[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
@@ -34,8 +35,9 @@ const Chat: React.FC = () => {
       return;
     }
     
-    // Fetch conversation partners and requests on initial load
+    // Fetch conversation partners, all users, and requests on initial load
     fetchConversationPartners();
+    fetchAllUsers();
     fetchMessageRequests();
     
     // Setup WebSocket connection for real-time updates
@@ -216,6 +218,19 @@ const Chat: React.FC = () => {
       }
     } finally {
       setLoadingUsers(false);
+    }
+  };
+
+  const fetchAllUsers = async () => {
+    try {
+      const users = await authAPI.getAllUsers();
+      setAllUsers(users);
+    } catch (err: any) {
+      console.error('Failed to fetch all users:', err);
+      if (err.response?.status === 401) {
+        logout();
+        navigate('/login');
+      }
     }
   };
 
@@ -560,19 +575,73 @@ const Chat: React.FC = () => {
         <div className="users-list">
           {loadingUsers ? (
             <div className="empty-users">Loading conversations...</div>
-          ) : conversationPartners.length === 0 ? (
-            <div className="empty-users">No conversations yet. Accept a message request to start chatting!</div>
           ) : (
-            conversationPartners.map((otherUser) => (
-              <div
-                key={otherUser.id}
-                className={`user-item ${selectedUserId === otherUser.id ? 'active' : ''}`}
-                onClick={() => setSelectedUserId(otherUser.id)}
-              >
-                <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
-                <div className="user-name">{otherUser.username}</div>
-              </div>
-            ))
+            <>
+              {/* Show existing conversation partners */}
+              {conversationPartners.length > 0 && (
+                <div style={{ 
+                  padding: '12px 16px', 
+                  fontSize: '11px', 
+                  fontWeight: '600', 
+                  color: '#9ca3af', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px',
+                  borderBottom: '1px solid #2d3142',
+                  marginBottom: '8px'
+                }}>
+                  Conversations ({conversationPartners.length})
+                </div>
+              )}
+              {conversationPartners.map((otherUser) => (
+                <div
+                  key={otherUser.id}
+                  className={`user-item ${selectedUserId === otherUser.id ? 'active' : ''}`}
+                  onClick={() => setSelectedUserId(otherUser.id)}
+                >
+                  <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
+                  <div className="user-name">{otherUser.username}</div>
+                </div>
+              ))}
+              
+              {/* Show all other users who aren't conversation partners yet */}
+              {allUsers.length > 0 && (
+                <>
+                  <div style={{ 
+                    padding: '12px 16px', 
+                    fontSize: '11px', 
+                    fontWeight: '600', 
+                    color: '#9ca3af', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.5px',
+                    borderTop: conversationPartners.length > 0 ? '1px solid #2d3142' : 'none',
+                    borderBottom: '1px solid #2d3142',
+                    marginTop: conversationPartners.length > 0 ? '8px' : '0',
+                    marginBottom: '8px'
+                  }}>
+                    All Users ({allUsers.filter(u => !conversationPartners.some(cp => cp.id === u.id)).length})
+                  </div>
+                  {allUsers
+                    .filter(userItem => !conversationPartners.some(cp => cp.id === userItem.id))
+                    .map((otherUser) => (
+                      <div
+                        key={otherUser.id}
+                        className={`user-item ${selectedUserId === otherUser.id ? 'active' : ''}`}
+                        onClick={() => setSelectedUserId(otherUser.id)}
+                        style={{
+                          opacity: 0.8
+                        }}
+                      >
+                        <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
+                        <div className="user-name">{otherUser.username}</div>
+                      </div>
+                    ))}
+                </>
+              )}
+              
+              {conversationPartners.length === 0 && allUsers.length === 0 && (
+                <div className="empty-users">No users found.</div>
+              )}
+            </>
           )}
         </div>
       </div>
