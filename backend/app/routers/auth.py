@@ -7,6 +7,7 @@ from app.auth import verify_password, get_password_hash, create_access_token, ge
 from app.config import settings
 from app import database as db_module
 from app.rate_limiter import check_rate_limit
+from app.session_manager import clear_session_key
 from bson import ObjectId
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -162,5 +163,86 @@ async def get_all_users(
         )
         for user in users
     ]
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
+async def delete_user(
+    user_id: str,
+    response: Response,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Delete a user account and all associated data.
+    
+    Any authenticated user can delete any other user's account. This will:
+    - Delete the user from the database
+    - Delete all messages where the user is sender or recipient
+    - Delete all message requests where the user is sender or recipient
+    - Clear the user's session keys
+    - If deleting own account: Clear the access token cookie (logout)
+    """
+    # Validate user_id format
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format"
+        )
+    
+    user_id_obj = ObjectId(user_id)
+    current_user_id_obj = ObjectId(current_user["_id"])
+    is_deleting_self = user_id_obj == current_user_id_obj
+    
+    # Verify user exists
+    user = await db_module.database.users.find_one({"_id": user_id_obj})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    try:
+        # 1. Delete all messages where user is sender or recipient
+        messages_result = await db_module.database.messages.delete_many({
+            "$or": [
+                {"sender_id": user_id_obj},
+                {"recipient_id": user_id_obj}
+            ]
+        })
+        print(f"[DELETE_USER] Deleted {messages_result.deleted_count} messages")
+        
+        # 2. Delete all message requests where user is sender or recipient
+        requests_result = await db_module.database.message_requests.delete_many({
+            "$or": [
+                {"sender_id": user_id_obj},
+                {"recipient_id": user_id_obj}
+            ]
+        })
+        print(f"[DELETE_USER] Deleted {requests_result.deleted_count} message requests")
+        
+        # 3. Clear session keys
+        clear_session_key(user_id)
+        print(f"[DELETE_USER] Cleared session keys for user {user_id}")
+        
+        # 4. Delete the user
+        await db_module.database.users.delete_one({"_id": user_id_obj})
+        print(f"[DELETE_USER] Deleted user {user['username']} (ID: {user_id}) by {current_user['username']}")
+        
+        # 5. Clear access token cookie (logout) only if deleting own account
+        if is_deleting_self and response:
+            response.delete_cookie(key="access_token", httponly=True, samesite="lax")
+        
+        return {
+            "message": "User account deleted successfully",
+            "deleted_messages": messages_result.deleted_count,
+            "deleted_requests": requests_result.deleted_count,
+            "deleted_user": user["username"]
+        }
+        
+    except Exception as e:
+        print(f"[DELETE_USER] Error deleting user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user: {str(e)}"
+        )
 
 

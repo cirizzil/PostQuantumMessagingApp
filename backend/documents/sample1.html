@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Document 1 - Post-Quantum Security</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #f4f4f4;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Understanding Post-Quantum Cryptography</h1>
+        <p>Post-quantum cryptography (PQC) refers to cryptographic algorithms that are secure against attacks by quantum computers. This document explains the fundamentals of PQC.</p>
+        
+        <h2>Why Post-Quantum Cryptography?</h2>
+        <p>Quantum computers have the potential to break many of the cryptographic systems currently in use. Shor's algorithm, for example, can factor large integers efficiently on a quantum computer, which would break RSA encryption.</p>
+        
+        <div class="highlight">
+            <strong>Key Point:</strong> Post-quantum cryptography provides security guarantees that remain valid even when quantum computers become available.
+        </div>
+        
+        <h2>NIST Post-Quantum Cryptography Standardization</h2>
+        <p>The National Institute of Standards and Technology (NIST) has been working to standardize post-quantum cryptographic algorithms. In 2024, NIST selected several algorithms including:</p>
+        <ul>
+            <li><strong>CRYSTALS-Kyber</strong> - Key encapsulation mechanism</li>
+            <li><strong>CRYSTALS-Dilithium</strong> - Digital signatures</li>
+            <li><strong>FALCON</strong> - Digital signatures</li>
+            <li><strong>SPHINCS+</strong> - Digital signatures</li>
+        </ul>
+        
+        <h2>Implementation in This Project</h2>
+        <p>This messaging application uses CRYSTALS-Kyber for post-quantum key exchange, ensuring that communications remain secure against quantum attacks.</p>
+        
+        <p><em>Document ID: sample1.html | Last updated: 2024</em></p>
+    </div>
+</body>
+</html>
+

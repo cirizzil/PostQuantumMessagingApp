@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Document 2 - OQS-OpenSSL Integration</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #e8f4f8;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a5490;
+        }
+        code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OQS-OpenSSL 3 Integration Guide</h1>
+        <p>This document describes how OQS-OpenSSL 3 is integrated into this application to provide post-quantum secure TLS connections.</p>
+        
+        <h2>What is OQS-OpenSSL?</h2>
+        <p>OQS-OpenSSL is a fork of OpenSSL that integrates post-quantum cryptographic algorithms from the Open Quantum Safe project. It allows applications to use post-quantum algorithms in TLS/SSL connections.</p>
+        
+        <h2>Architecture</h2>
+        <pre>
+Client → HTTPS (TLS 1.3 + PQ) → OQS-OpenSSL Proxy → FastAPI Backend
+        </pre>
+        
+        <h2>Key Features</h2>
+        <ul>
+            <li>Post-quantum key exchange using CRYSTALS-Kyber</li>
+            <li>Hybrid classical + post-quantum cipher suites</li>
+            <li>Backward compatibility with classical TLS</li>
+            <li>NIST-selected algorithms</li>
+        </ul>
+        
+        <h2>Testing the Connection</h2>
+        <p>To verify post-quantum TLS is working, use:</p>
+        <pre><code>oqs_openssl s_client -connect localhost:443 -groups kyber512</code></pre>
+        
+        <p><em>Document ID: sample2.html | Technical documentation</em></p>
+    </div>
+</body>
+</html>
+

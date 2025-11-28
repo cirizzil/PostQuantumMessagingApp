@@ -4,7 +4,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.database import connect_to_mongo, close_mongo_connection
-from app.routers import auth, messages, websocket, pq
+from app.routers import auth, messages, websocket, pq, documents
 from app.middleware import setup_rate_limiting
 from app.pq_transport import generate_server_keypair
 
@@ -59,6 +59,7 @@ app.include_router(auth.router)
 app.include_router(messages.router)
 app.include_router(websocket.router)
 app.include_router(pq.router)  # Post-quantum transport security
+app.include_router(documents.router)  # Document serving
 
 
 @app.on_event("startup")

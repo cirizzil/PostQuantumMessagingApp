@@ -6,7 +6,9 @@ A full-stack messaging application with post-quantum transport security, featuri
 
 - **User Authentication**: Sign up and login with username/password
 - **JWT-based Auth**: Secure token-based authentication stored in httpOnly cookies
-- **Post-Quantum Transport Security**: CRYSTALS-Kyber KEM with AES-256-GCM encryption (see [POST_QUANTUM.md](POST_QUANTUM.md))
+- **Post-Quantum Transport Security**: CRYSTALS-Kyber KEM with AES-256-GCM encryption
+- **OQS-OpenSSL 3 Integration**: TLS/HTTPS connections using post-quantum cryptography (optional, see [OQS_OPENSSL.md](OQS_OPENSSL.md))
+- **Document Database**: Server maintains and serves HTML documents and web pages
 - **One-to-One Messaging**: Private conversations between users
 - **Real-time Updates**: WebSocket-based instant message delivery
 - **Message Requests**: First messages require acceptance before conversation starts
@@ -46,33 +48,12 @@ A full-stack messaging application with post-quantum transport security, featuri
 
 ### Step 2: Set Up MongoDB
 
-#### Option A: MongoDB Atlas (Cloud - Recommended)
-
-1. Sign up at [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register)
-2. Create a free cluster (M0 - Free tier)
-3. Set up Database Access (create user with password)
-4. Set up Network Access (allow from anywhere for development: `0.0.0.0/0`)
-5. Get connection string: Click "Connect" → "Connect your application"
-6. Copy the connection string (looks like: `mongodb+srv://username:password@cluster.mongodb.net/`)
-
-#### Option B: Local MongoDB
+#### Local MongoDB
 
 1. Download from [mongodb.com](https://www.mongodb.com/try/download/community)
 2. Install with default settings (includes MongoDB as Windows service)
-3. Verify it's running:
-   ```powershell
-   Get-Service MongoDB
-   ```
-4. If stopped, start it:
-   ```powershell
-   Start-Service MongoDB
-   ```
 
-#### Option C: Docker
 
-```powershell
-docker run -d -p 27017:27017 --name mongodb mongo:7
-```
 
 ### Step 3: Backend Setup
 
@@ -131,8 +112,8 @@ docker run -d -p 27017:27017 --name mongodb mongo:7
    Application startup complete.
    ```
    
-   ✅ Backend is now running at: **http://localhost:8000**  
-   📚 API docs available at: **http://localhost:8000/docs**
+   Backend is now running at: **http://localhost:8000**  
+   API docs available at: **http://localhost:8000/docs**
 
 ### Step 4: Frontend Setup
 
@@ -167,7 +148,7 @@ docker run -d -p 27017:27017 --name mongodb mongo:7
    ➜  Local:   http://localhost:5173/
    ```
    
-   ✅ Frontend is now running at: **http://localhost:5173**
+   Frontend is now running at: **http://localhost:5173**
 
 ### Step 5: Use the App
 
@@ -199,14 +180,30 @@ docker run -d -p 27017:27017 --name mongodb mongo:7
 │   │   ├── models.py            # Pydantic models
 │   │   ├── auth.py              # Authentication utilities
 │   │   ├── pq_transport.py      # Post-quantum transport security
+│   │   ├── pq_encryption.py    # Post-quantum encryption utilities
 │   │   ├── session_manager.py   # Session key storage
+│   │   ├── middleware.py        # Rate limiting middleware
+│   │   ├── tls_proxy.py         # OQS-OpenSSL TLS proxy (experimental)
 │   │   └── routers/
 │   │       ├── auth.py          # Auth endpoints
 │   │       ├── messages.py      # Message endpoints
-│   │       ├── websocket.py     # WebSocket handler
-│   │       └── pq.py            # Post-quantum endpoints
+│   │       ├── websocket.py    # WebSocket handler
+│   │       ├── pq.py            # Post-quantum endpoints
+│   │       └── documents.py    # Document serving endpoints
+│   ├── documents/               # HTML documents and files database
+│   │   ├── README.md
+│   │   ├── sample1.html
+│   │   └── sample2.html
 │   ├── requirements.txt
-│   └── .env                     # Environment variables
+│   ├── .env                     # Environment variables
+│   ├── clear_database.py        # Utility: Clear all database data
+│   ├── verify_pq.py             # Utility: Verify PQ implementation
+│   ├── test_pq_flow.py          # Test script for PQ flow
+│   ├── start_server.ps1         # Helper: Start server with PQ setup
+│   ├── setup_liboqs.ps1         # Helper: Setup liboqs environment
+│   ├── build_liboqs.ps1         # Helper: Build liboqs from source
+│   ├── generate_pq_certificate.ps1  # Helper: Generate PQ certificates
+│   └── create_stunnel_config.ps1   # Helper: Create stunnel config
 ├── frontend/
 │   ├── src/
 │   │   ├── components/          # React components
@@ -219,7 +216,8 @@ docker run -d -p 27017:27017 --name mongodb mongo:7
 │   ├── package.json
 │   └── nginx.conf
 ├── README.md                    # This file
-└── POST_QUANTUM.md             # Post-quantum implementation details
+├── OQS_OPENSSL.md              # OQS-OpenSSL 3 integration guide (build, setup, migration)
+└── generate_key.py             # Utility: Generate encryption keys
 ```
 
 ## Environment Variables
@@ -268,6 +266,10 @@ docker run -d -p 27017:27017 --name mongodb mongo:7
 - `GET /auth/me` - Get current user info (requires authentication)
 - `GET /auth/users` - Get list of all users (excluding current user)
 - `GET /auth/ws-token` - Get WebSocket authentication token
+- `DELETE /auth/users/{user_id}` - Delete user account (any authenticated user can delete any user)
+  - Cascades to delete all messages, message requests, and session keys
+  - If deleting own account: automatically logs out the user after deletion
+  - If deleting another user: user list is refreshed automatically
 
 ### Messages
 
@@ -295,10 +297,20 @@ docker run -d -p 27017:27017 --name mongodb mongo:7
 
 - `GET /messages/conversations` - Get list of users you've chatted with
 
-### Post-Quantum (see [POST_QUANTUM.md](POST_QUANTUM.md))
+### Documents
+
+- `GET /documents` - Browse available documents (HTML page)
+- `GET /documents/list` - Get list of all documents (JSON)
+- `GET /documents/{document_id}` - Retrieve a specific document (HTML, PDF, etc.)
+
+**Note**: Documents are stored in `backend/documents/` directory. Add HTML, PDF, or other files there to serve them through the API.
+
+### Post-Quantum
 
 - `GET /pq/kem-public-key` - Get server's Kyber public key
 - `POST /pq/handshake` - Perform post-quantum handshake
+
+For detailed post-quantum implementation information, see the [Post-Quantum Implementation](#post-quantum-implementation) section below.
 
 ### WebSocket
 
@@ -330,11 +342,53 @@ All communication goes through the server. Users never communicate directly.
 - `messages`: Accepted messages between users
 - `message_requests`: Pending message requests
 
+## Post-Quantum Implementation
+
+The application implements post-quantum "TLS-like" transport security between the browser and server:
+
+- **Key Exchange**: CRYSTALS-Kyber KEM (Key Encapsulation Mechanism) - NIST-selected post-quantum algorithm
+- **Message Encryption**: AES-256-GCM (Authenticated Encryption)
+- **Key Derivation**: HKDF (HMAC-based Key Derivation Function)
+
+### How It Works
+
+1. **Server Startup**: Generates a Kyber keypair and exposes the public key at `/pq/kem-public-key`
+2. **Client Login**: Automatically performs a PQ handshake:
+   - Fetches server's public key
+   - Performs Kyber encapsulation to create a shared secret
+   - Both sides derive an AES-256 session key using HKDF
+3. **Message Sending**: All messages are encrypted with AES-GCM using the session key before sending
+
+### Architecture
+
+**Backend**: Uses `liboqs-python` with real CRYSTALS-Kyber (when liboqs C library is installed)  
+**Frontend**: Uses Web Crypto API for AES-GCM and HKDF, with a placeholder for Kyber (production would use a real library)
+
+**Important**: This is transport security (browser ↔ server), not end-to-end encryption. The server can decrypt and read all messages.
+
+### Verification
+
+To verify post-quantum functionality is working:
+
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python verify_pq.py
+```
+
+### OQS-OpenSSL 3 Integration
+
+For TLS/HTTPS connections using OQS-OpenSSL 3 (project requirement), see [OQS_OPENSSL.md](OQS_OPENSSL.md) for:
+- Building OQS-OpenSSL 3 on Windows
+- Setting up TLS proxy with post-quantum cipher suites
+- Generating post-quantum certificates
+- Testing post-quantum TLS connections
+
 ## Security Features
 
 1. **Password Hashing**: Passwords hashed using bcrypt before storage
 2. **JWT Authentication**: Secure token-based authentication with httpOnly cookies
-3. **Post-Quantum Transport Security**: CRYSTALS-Kyber KEM with AES-256-GCM encryption (see [POST_QUANTUM.md](POST_QUANTUM.md))
+3. **Post-Quantum Transport Security**: CRYSTALS-Kyber KEM with AES-256-GCM encryption
 4. **CORS Protection**: Configured CORS middleware for frontend
 5. **Rate Limiting**: Applied to login/register endpoints
 
@@ -351,9 +405,14 @@ All communication goes through the server. Users never communicate directly.
 **"JWT_SECRET must be at least 32 characters":**
 - Update your `.env` file with a longer `JWT_SECRET` (at least 32 characters)
 
-**"liboqs not found" warnings:**
-- The app will work with fallback mode (see [POST_QUANTUM.md](POST_QUANTUM.md))
-- For full post-quantum security, install liboqs (optional)
+**"liboqs not found" warnings or auto-install failures:**
+- The app will work with fallback mode (functional but not PQ-safe)
+- If `liboqs-python` tries to auto-install and fails, you can uninstall it: `pip uninstall liboqs-python`
+- The server will start in fallback mode
+- For full post-quantum security, install liboqs manually (optional)
+- Run `python verify_pq.py` to check if PQ is working correctly
+- Note: `liboqs-python` is commented out in `requirements.txt` by default due to auto-install issues
+- To set up liboqs manually: Set `LIBOQS_DIR` environment variable to the path where liboqs is installed
 
 **Port 8000 already in use:**
 - Change the port: `uvicorn app.main:app --reload --port 8001`
@@ -392,6 +451,45 @@ mongosh
 # Type 'exit' to quit
 ```
 
+## Utility Scripts
+
+The project includes several utility scripts in the `backend/` directory:
+
+### `clear_database.py`
+Clears all users, messages, and message requests from the database. Useful for starting fresh during development.
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python clear_database.py
+```
+
+### `verify_pq.py`
+Verifies that the post-quantum implementation is using real Kyber cryptography (not fallback mode).
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python verify_pq.py
+```
+
+### `start_server.ps1`
+Helper script to start the server with proper liboqs environment setup. Edit the script to set your `OQS_INSTALL_PATH` before using.
+```powershell
+cd backend
+.\start_server.ps1
+```
+
+### `generate_key.py` (root directory)
+Generates a secure 32-byte encryption key for use in `.env` files.
+```powershell
+python generate_key.py
+```
+
+### Other Helper Scripts
+- `setup_liboqs.ps1` - Interactive setup for liboqs environment variables
+- `build_liboqs.ps1` - Build liboqs from source (Windows)
+- `generate_pq_certificate.ps1` - Generate post-quantum certificates
+- `create_stunnel_config.ps1` - Create stunnel configuration for OQS-OpenSSL
+
 ## Development Notes
 
 - **Real-time Updates**: WebSocket-based (not polling)
@@ -399,6 +497,7 @@ mongosh
 - **Password Requirements**: Minimum 8 characters with uppercase, lowercase, digit, and special character
 - **Message Types**: Text only (no file attachments)
 - **Chat Type**: One-to-one only (no group chats)
+- **Document Database**: HTML documents stored in `backend/documents/` are automatically served via `/documents` endpoints
 
 ## Deployment
 
@@ -413,7 +512,3 @@ mongosh
 - Build Command: `npm install && npm run build`
 - Publish Directory: `dist`
 - Environment Variables: `VITE_API_URL=https://your-backend.onrender.com`
-
-## License
-
-MIT

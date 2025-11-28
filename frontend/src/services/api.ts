@@ -45,6 +45,11 @@ export const authAPI = {
     const response = await api.get<{ token: string; user_id: string }>('/auth/ws-token');
     return response.data;
   },
+
+  deleteUser: async (userId: string): Promise<{ message: string; deleted_messages: number; deleted_requests: number }> => {
+    const response = await api.delete<{ message: string; deleted_messages: number; deleted_requests: number }>(`/auth/users/${userId}`);
+    return response.data;
+  },
 };
 
 export const pqAPI = {

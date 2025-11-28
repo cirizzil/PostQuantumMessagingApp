@@ -9,5 +9,7 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 cryptography==41.0.7
 slowapi==0.1.9
-liboqs-python>=0.8.0
+# liboqs-python>=0.8.0  # Optional: For post-quantum cryptography (requires manual liboqs installation)
+# Note: Installing liboqs-python alone may fail. See QUICK_SETUP.md for proper setup.
+# The app works in fallback mode without liboqs-python (not PQ-safe, but functional for development).
 

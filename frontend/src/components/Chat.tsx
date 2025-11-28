@@ -17,6 +17,9 @@ const Chat: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<{ id: string; username: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const selectedUserIdRef = useRef<string | null>(null);
@@ -449,20 +452,175 @@ const Chat: React.FC = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!userToDelete) return;
+    
+    setDeleting(true);
+    setError('');
+    
+    try {
+      const result = await authAPI.deleteUser(userToDelete.id);
+      console.log('User deleted:', result);
+      
+      // If deleting own account, logout and redirect
+      if (userToDelete.id === user?.id) {
+        logout();
+        navigate('/login');
+        alert(`Your account has been deleted successfully.\n\nDeleted:\n- ${result.deleted_messages} messages\n- ${result.deleted_requests} message requests`);
+      } else {
+        // If deleting another user, refresh the user list
+        await fetchAllUsers();
+        await fetchConversationPartners();
+        // Clear selected user if it was the deleted user
+        if (selectedUserId === userToDelete.id) {
+          setSelectedUserId(null);
+          setMessages([]);
+        }
+        alert(`User "${result.deleted_user}" has been deleted successfully.\n\nDeleted:\n- ${result.deleted_messages} messages\n- ${result.deleted_requests} message requests`);
+      }
+      
+      setShowDeleteConfirm(false);
+      setUserToDelete(null);
+    } catch (err: any) {
+      const errorDetail = err.response?.data?.detail;
+      let errorMessage = 'Failed to delete user';
+      
+      if (errorDetail) {
+        if (typeof errorDetail === 'string') {
+          errorMessage = errorDetail;
+        }
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (!isAuthenticated) {
     return null;
   }
 
   return (
     <div className="chat-container">
+      {showDeleteConfirm && userToDelete && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: '#1e1e2e',
+            padding: '24px',
+            borderRadius: '12px',
+            maxWidth: '400px',
+            width: '90%',
+            border: '1px solid #2d3142'
+          }}>
+            <h3 style={{ color: '#ff6b6b', marginTop: 0, marginBottom: '16px' }}>
+              {userToDelete.id === user?.id ? 'Delete Your Account' : `Delete User: ${userToDelete.username}`}
+            </h3>
+            <p style={{ color: '#b0b3b8', marginBottom: '20px', lineHeight: '1.6' }}>
+              {userToDelete.id === user?.id 
+                ? 'Are you sure you want to delete your account? This action cannot be undone.'
+                : `Are you sure you want to delete "${userToDelete.username}"? This action cannot be undone.`
+              }
+              <br /><br />
+              This will permanently delete:
+              <ul style={{ margin: '8px 0', paddingLeft: '20px', color: '#9ca3af' }}>
+                <li>The user account</li>
+                <li>All messages</li>
+                <li>All message requests</li>
+              </ul>
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleting(false);
+                  setUserToDelete(null);
+                }}
+                disabled={deleting}
+                style={{
+                  padding: '10px 20px',
+                  background: '#2d3142',
+                  color: '#e4e6eb',
+                  border: '1px solid #3d4152',
+                  borderRadius: '8px',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+                style={{
+                  padding: '10px 20px',
+                  background: '#ff6b6b',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  opacity: deleting ? 0.6 : 1
+                }}
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="chat-sidebar">
         <div className="sidebar-header">
           <h2>Users</h2>
           <div className="user-info-sidebar">
             <span>{user?.username}</span>
-            <button onClick={() => { logout(); navigate('/login'); }} className="logout-button">
-              Logout
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px' }}>
+              <button onClick={() => { logout(); navigate('/login'); }} className="logout-button">
+                Logout
+              </button>
+              <button 
+                onClick={() => {
+                  if (user?.id) {
+                    setUserToDelete({ id: user.id, username: user.username });
+                    setShowDeleteConfirm(true);
+                  }
+                }}
+                style={{
+                  padding: '10px 16px',
+                  background: 'rgba(255, 107, 107, 0.1)',
+                  color: '#ff6b6b',
+                  border: '1px solid rgba(255, 107, 107, 0.3)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 107, 107, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 107, 107, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 107, 107, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 107, 107, 0.3)';
+                }}
+              >
+                Delete Account
+              </button>
+            </div>
           </div>
         </div>
         {/* Message Requests Section */}
@@ -596,10 +754,43 @@ const Chat: React.FC = () => {
                 <div
                   key={otherUser.id}
                   className={`user-item ${selectedUserId === otherUser.id ? 'active' : ''}`}
-                  onClick={() => setSelectedUserId(otherUser.id)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}
+                  onMouseEnter={(e) => {
+                    const deleteBtn = e.currentTarget.querySelector('.delete-user-btn') as HTMLElement;
+                    if (deleteBtn) deleteBtn.style.opacity = '1';
+                  }}
+                  onMouseLeave={(e) => {
+                    const deleteBtn = e.currentTarget.querySelector('.delete-user-btn') as HTMLElement;
+                    if (deleteBtn) deleteBtn.style.opacity = '0';
+                  }}
                 >
-                  <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
-                  <div className="user-name">{otherUser.username}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }} onClick={() => setSelectedUserId(otherUser.id)}>
+                    <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
+                    <div className="user-name">{otherUser.username}</div>
+                  </div>
+                  <button
+                    className="delete-user-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setUserToDelete({ id: otherUser.id, username: otherUser.username });
+                      setShowDeleteConfirm(true);
+                    }}
+                    style={{
+                      opacity: 0,
+                      transition: 'opacity 0.2s',
+                      background: 'rgba(255, 107, 107, 0.1)',
+                      border: '1px solid rgba(255, 107, 107, 0.3)',
+                      color: '#ff6b6b',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      marginRight: '8px'
+                    }}
+                    title={`Delete ${otherUser.username}`}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
               
@@ -626,13 +817,49 @@ const Chat: React.FC = () => {
                       <div
                         key={otherUser.id}
                         className={`user-item ${selectedUserId === otherUser.id ? 'active' : ''}`}
-                        onClick={() => setSelectedUserId(otherUser.id)}
                         style={{
-                          opacity: 0.8
+                          opacity: 0.8,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          position: 'relative'
+                        }}
+                        onMouseEnter={(e) => {
+                          const deleteBtn = e.currentTarget.querySelector('.delete-user-btn') as HTMLElement;
+                          if (deleteBtn) deleteBtn.style.opacity = '1';
+                        }}
+                        onMouseLeave={(e) => {
+                          const deleteBtn = e.currentTarget.querySelector('.delete-user-btn') as HTMLElement;
+                          if (deleteBtn) deleteBtn.style.opacity = '0';
                         }}
                       >
-                        <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
-                        <div className="user-name">{otherUser.username}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }} onClick={() => setSelectedUserId(otherUser.id)}>
+                          <div className="user-avatar">{otherUser.username[0].toUpperCase()}</div>
+                          <div className="user-name">{otherUser.username}</div>
+                        </div>
+                        <button
+                          className="delete-user-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setUserToDelete({ id: otherUser.id, username: otherUser.username });
+                            setShowDeleteConfirm(true);
+                          }}
+                          style={{
+                            opacity: 0,
+                            transition: 'opacity 0.2s',
+                            background: 'rgba(255, 107, 107, 0.1)',
+                            border: '1px solid rgba(255, 107, 107, 0.3)',
+                            color: '#ff6b6b',
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            marginRight: '8px'
+                          }}
+                          title={`Delete ${otherUser.username}`}
+                        >
+                          ×
+                        </button>
                       </div>
                     ))}
                 </>
